@@ -272,6 +272,28 @@ int main(int argc, char **argv) {
   // - add code to perform the desired operation
   // - for each case print some information about the results
 
+  ////////////////////////////////////////////////////////////////////////////////////
+  PolygonMesh* pMesh;
+
+  SceneGraphTraversal traversal(wrl);
+  Node* node = (Node*)0;
+  while((node=traversal.next())!=(Node*)0) {
+    if(node->isShape()) {
+      Shape* shape = (Shape*)node;
+      node = shape->getGeometry();
+      if(node->isIndexedFaceSet()) {
+        IndexedFaceSet* ifs = (IndexedFaceSet*)node;
+
+        int nVifs = ifs->getNumberOfCoord();
+        vector<int>& coordIndex = ifs->getCoordIndex();
+        
+        pMesh = new PolygonMesh(nVifs,coordIndex);
+        break;
+      }
+    }
+  }
+  ////////////////////////////////////////////////////////////////////////////////////
+
   // PolygonMesh::computeConnectedComponentsPrimal()
   // PolygonMesh::computeConnectedComponentsDual()
   // PolygonMesh::isOriented()
@@ -284,26 +306,50 @@ int main(int argc, char **argv) {
   switch(D._operation) {
   case Operation::COMPUTE_CC_PRIMAL:
     // perform the operation here
+    vector<int> faceLabel;
+    int nCC = pMesh->computeConnectedComponentsPrimal(faceLabel);
+    cout << "Number of Connected Components in Primal Graph: " << nCC << endl;
     break;
   case Operation::COMPUTE_CC_DUAL:
     // perform the operation here
+    vector<int> faceLabel;
+    int nCC = pMesh->computeConnectedComponentsDual(faceLabel);
+    cout << "Number of Connected Components in Dual Graph: " << nCC << endl;
     break;
   case Operation::IS_ORIENTED:
     // perform the operation here
+    bool oriented = pMesh->isOriented();
+    cout << "It's " << (oriented ? " " : "not ") << "oriented" << endl;
     break;
   case Operation::IS_ORIENTABLE:
     // perform the operation here
+    bool orientable = pMesh->isOrientable();
+    cout << "It's " << (orientable ? " " : "not ") << "orientable" << endl;
     break;
   case Operation::ORIENT:
     // perform the operation here
+    vector<int> ccIndex, vector<bool> invert_face;
+    bool success = pMesh->orient(ccIndex, invert_face);
+    if (not success) cout << "orient() method failed" << endl;
+    else cout << "PMesh succefully oriented" << endl << pMesh->isOriented();
     break;
   case Operation::REMOVE_ISOLATED_VERTICES:
     // perform the operation here
+    vector<int> coordMap, vector<int> coordIndexOut;
+    bool success = pMesh->removeIsolatedVertices(coordMap, coordIndexOut);
+    if (not success) cout << "Couldn't remove any isolated vertex" << endl;
+    else cout << "Remove succeed\n" << "nV before: " << pMesh->getNumberOfVertices()
+      << '\n' << "nVout: " << coordMap.size() << endl;
     break;
   case Operation::CUT_THROUGH_SINGULAR_VERTICES:
     // perform the operation here
+    vector<int> vIndexMap, vector<int> coordIndexOut;
+    pMesh->cutThroughSingularVertices(vIndexMap, coordIndexOut);
+    cout << "nVout: " << vIndexMap.size() << endl;
     break;
   case Operation::CONVERT_TO_MANIFOLD:
+    vector<int> vIndexMap, vector<int> coordIndexOut;
+    pMesh->convertToManifold(vIndexMap, coordIndexOut);
     // perform the operation here
     break;
   case Operation::NONE:

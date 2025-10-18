@@ -1,11 +1,11 @@
 //------------------------------------------------------------------------
 //  Copyright (C) Gabriel Taubin
-//  Time-stamp: <2025-08-05 23:12:59 taubin>
+//  Time-stamp: <2025-08-04 22:10:14 gtaubin>
 //------------------------------------------------------------------------
 //
 // Faces.hpp
 //
-// Written by: <Your Name>
+// Written by: Rundong He
 //
 // Software developed for the course
 // Digital Geometry Processing
@@ -33,7 +33,7 @@
 // ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+
 #ifndef _FACES_HPP_
 #define _FACES_HPP_
 
@@ -44,7 +44,6 @@ using namespace std;
 class Faces {
   
 public:
-  
           Faces(const int nV, const vector<int>& coordIndex);
 
   // The constructor should compare the nV value passed as a parameter
@@ -90,9 +89,19 @@ public:
 
 private:
 
-  int          _nV;
-  vector<int>  _coordIndex;
-  vector<int>  _faceFirstCorner;
+  int _nV;  // Number of vertices
+  int _nF;  // Number of faces
+
+  // Same as the parameter of the constructor except that separators
+  // decrease on value (-1, -2, ...)
+  vector<int> _coordIndex;
+
+  // startPosition[iF] returns the first index of a vertex of the face
+  // indexed by iF
+  vector<int> _startPosition;
+
+  bool    notValidFaceIndex(const int iF)          const;
+  bool    notValidCornerIndex(const int iC)        const;
 };
 
 #endif /* _FACES_HPP_ */

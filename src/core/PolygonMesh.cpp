@@ -61,7 +61,11 @@ PolygonMesh::PolygonMesh(const int nVertices, const vector<int>& coordIndex):
     _isBoundaryVertex.push_back(false);
   // TODO
   // - for edge boundary iE label its two end vertices as boundary 
-  
+  for (int iE = 0; iE < nE; ++iE)
+    if (getNumberOfEdgeHalfEdges(iE) == 1)
+      _isBoundaryVertex[getVertex0(iE)] = _isBoundaryVertex[getVertex1(iE)] = true;
+
+
   // 2) create a partition of the corners in the stack
   Partition partition(nC);
   // 3) for each regular edge
@@ -69,6 +73,21 @@ PolygonMesh::PolygonMesh(const int nVertices, const vector<int>& coordIndex):
   //    - join the two pairs of corresponding corners accross the edge
   //    - you need to take into account the relative orientation of
   //      the two incident half edges
+  for (int iE = 0; iE < nE; ++iE)
+  if (getNumberOfEdgeHalfEdges(iE) == 2)
+  {
+    int c = getEdgeHalfEdge(iE, 0);
+    int d = getEdgeHalfEdge(iE, 1);
+
+    if (_coordIndex[c] == _coordIndex[d]) {
+      partition.join(c, d);
+      partition.join(getNext(c), getNext(d));
+    } else {
+      partition.join(c, getNext(d));
+      partition.join(getNext(c), d);
+    }
+  }
+
 
   // consistently oriented
   /* \                  / */
@@ -101,24 +120,39 @@ PolygonMesh::PolygonMesh(const int nVertices, const vector<int>& coordIndex):
   //    - note that all the corners in each subset share a common
   //      vertex index, but multiple subsets may correspond to the
   //      same vertex index, indicating that the vertex is singular
+  _nPartsVertex = vector<int>(nV, 0);
+  for (int iC = 0; iC < nC; ++iC)
+  if (_coordIndex[iC] >= 0)
+  if (partition.find(iC) == iC)
+  _nPartsVertex[_coordIndex[iC]]++;
 }
 
 int PolygonMesh::getNumberOfFaces() const {
-  // TODO
-  return 0;
+  int cnt = 0;
+  for (int x : _coordIndex) if (x < 0) cnt++;
+  return cnt;
 }
 
 int PolygonMesh::getNumberOfEdgeFaces(const int iE) const {
   return getNumberOfEdgeHalfEdges(iE);
 }
 
+#define nE (getNumberOfEdges())
+#define valid_iE (0 <= iE and iE < nE)
+
 int PolygonMesh::getEdgeFace(const int iE, const int j) const {
-  // TODO
-  return -1;
+  if (not valid_iE) return -1;
+  if (0 > j or j >= getNumberOfEdgeHalfEdges(iE)) return -1;
+
+  int iC = getEdgeHalfEdge(iE, j);
+  return _face[iC];
 }
 
 bool PolygonMesh::isEdgeFace(const int iE, const int iF) const {
-  // TODO
+  if (not valid_iE) return false;
+  int jF;
+  for (int j = 0; jF = getEdgeFace(iE, j), jF != -1; ++j)
+    if (jF == iF) return true;
   return false;
 }
 
@@ -137,12 +171,18 @@ bool PolygonMesh::isSingularVertex(const int iV) const {
 // properties of the whole mesh
 
 bool PolygonMesh::isRegular() const {
-  // TODO
-  return false;
+  for (int iV = 0; iV < getNumberOfVertices(); ++iV)
+    if (isSingularVertex(iV)) return false;
+
+  for (int iE = 0; iE < getNumberOfEdges(); ++iE)
+    if (isSingularEdge(iE)) return false;
+
+  return true;
 }
 
 bool PolygonMesh::hasBoundary() const {
-  // TODO
+  for (int iE = 0; iE < getNumberOfEdges(); ++iE)
+    if (isBoundaryEdge(iE)) return true;
   return false;
 }
 
@@ -161,8 +201,20 @@ int PolygonMesh::computeConnectedComponentsPrimal(vector<int>& faceLabel) const 
   //
   // - use the edges of the primal graph to compute a partition of the
   //   vertices
+  int nE = getNumberOfEdges(),
+      nV = getNumberOfVertices();
+
+  Partition partition(nV);
+  for (int iE = 0; iE < nE; ++iE) {
+    int iV0 = getVertex0(iE),
+        iV1 = getVertex1(iE);
+    partition.join(iV0, iV1);
+  }
+
   //
   // - nCC is equal to the final number of parts in the partition
+  nCCprimal = partition.getNumberOfParts();
+
   //
   // - since all the vertices of each face must belong to the the same
   //   part, there is no ambiguity in assigning connected component
@@ -173,9 +225,26 @@ int PolygonMesh::computeConnectedComponentsPrimal(vector<int>& faceLabel) const 
   //
   // - first, assign component numbers to the vertices which are
   //   representative of the parts
+  vector<int> vToCC(nV, -1);
+  int iCC = 0;
+  for (int iV = 0; iV < nV; ++iV)
+  if (partition.find(iV) == iV)
+    vToCC[iV] = iCC++;
+  // assert(iCC == nCCprimal);
+
   // - second, assign component numbers to all the other vertices
+  for (int iV = 0; iV < nV; ++iV)
+    vToCC[iV] = vToCC[partition.find(iV)];
+
   // - finally, fill the faceLabel array using the component number
   //   associated with the first vertex of each face
+  int nF = getNumberOfFaces();
+  faceLabel.resize(nF);
+  for (int iC = 0; iC < nC; ++iC) {
+    int iF = getFace(iC),
+        iV = _coordIndex[iC];
+    faceLabel[iF] = vToCC[iV];
+  }
   
   return nCCprimal;
 }
@@ -190,6 +259,9 @@ int PolygonMesh::computeConnectedComponentsDual(vector<int>& faceLabel) const {
 
   int iF,iFt,iFR,iC0,iC1,iC,iCt,iP;
 
+  int nF = getNumberOfFaces(),
+      nE = getNumberOfEdges();
+
   // HINTS :
   //
   // - use the edges of the dual graph to compute a partition of the
@@ -197,12 +269,40 @@ int PolygonMesh::computeConnectedComponentsDual(vector<int>& faceLabel) const {
   //
   // - you can generate the dual graph explicitly, or just traverse
   //   the half edges looking for regular edges
+  Partition partition(nF);
+  // for (iC = 0; iC < nC; ++iC) {
+  //   int iV0 = getSrc(iC),
+  //       iV1 = getDst(iC);
+  //   int iE = getEdge(iV0, iV1);
+  //   if (not isRegularEdge(iE)) continue;
+
+  //   int jC = getTwin(iC);
+  //   int iF = getFace(iC),
+  //       jF = getFace(jC);
+  //   partition.join(iF, jF);
+  // }
+  for (int iE = 0; iE < nE; ++iE)
+  if (isRegularEdge(iE))
+  {
+    iC0 = getEdgeHalfEdge(iE, 0);
+    iC1 = getEdgeHalfEdge(iE, 1);
+    int iF0, iF1;
+    iF0 = getFace(iC0);
+    iF1 = getFace(iC1);
+    partition.join(iF0, iF1);
+  }
+
   //
   // - nCC is equal to the final number of parts in the partition
+  nCCdual = partition.getNumberOfParts();
+
   //
   // - component number assignment is similar to the primal case, but
   //   easier here, since there is no need to transfer from vertices
   //   to faces
+  faceLabel.resize(nF);
+  for (int iF = 0; iF < nF; ++iF)
+    faceLabel[iF] = partition.find(iF);
   
   return nCCdual;
 }
@@ -222,8 +322,15 @@ bool PolygonMesh::isOriented() const {
   //
   // - traverse the list of half edges, and check whether or not the
   //   regualr edges are consistently oriented
+  for (int iC = 0; iC < getNumberOfCorners(); ++iC) {
+    int iV0 = getSrc(iC),
+        iV1 = getDst(iC);
+    int iE = getEdge(iV0, iV1);
+    if (not isRegularEdge(iE)) continue;
   // - as soon as you find one edge which is not consistently oriented
   //   you can reurn false
+    if (not isOriented(iC)) return false;
+  }
   // - if no inconsistently oriented edge is found, return true
 
   return true;
@@ -279,6 +386,44 @@ bool PolygonMesh::isOrientable() const {
   //     all the connected components are accounted for }
   //  }
 
+  vector<int> first_corner_face(nF);
+  first_corner_face[0] = 0;
+  for (int iF = 1; iF < nF; ++iF) {
+    int iC = first_corner_face[iF - 1];
+    first_corner_face[iF] = iC + getFaceSize(iC) + 1;
+  }
+
+  for (int jF = 0; jF < nF; ++jF) if (not face_was_visited[jF]) {
+
+    // face_root array doesn't seem to be used in this method
+
+    face_was_visited[jF] = true;
+    corner_stack.clear();
+    for (int jC = first_corner_face[jF]; _coordIndex[jC] >= 0; ++jC)
+      corner_stack.push_back(jC);
+
+    while (not corner_stack.empty()) {
+      int iC = corner_stack.pop_back();
+      int iCt = getTwin(jC);
+      if (iCt == -1) continue;
+      int iFt = getFace(iCt);
+      int iF = getFace(iC);
+
+      bool should_be_inverted = not isOriented(iC);
+
+      if (face_was_visited[iFt]) {
+        if (should_be_inverted != invert_face[iF])
+          return false;
+      } else if (not face_was_visited[iFt]) {
+        invert_face[iFt] = should_be_inverted;
+        face_was_visited[iFt] = true;
+        for (int jC = first_corner_face[iFt]; _coordIndex[jC] >= 0; ++jC)
+          corner_stack.push_back(jC);
+      }
+
+    }
+  }
+
   return true;
 }
 
@@ -297,6 +442,7 @@ bool PolygonMesh::isOrientable() const {
 // - returns the number of connected components nCC if successful,
 //   and 0 if the mesh is not orientable
 // - if not successful, the output arrays should be empty as well
+#define FAIL { ccIndex.clear(); invert_face.clear(); return 0; }
 int PolygonMesh::orient(vector<int>& ccIndex, vector<bool>& invert_face) {
   int nCC = 0;
   ccIndex.clear();
@@ -317,6 +463,50 @@ int PolygonMesh::orient(vector<int>& ccIndex, vector<bool>& invert_face) {
   //   since we need to partition the faces into connected components,
   //   and fill the ccIndex and invert_face array
 
+  vector<int> first_corner_face(nF);
+  first_corner_face[0] = 0;
+  for (int iF = 1; iF < nF; ++iF) {
+    int iC = first_corner_face[iF - 1];
+    first_corner_face[iF] = iC + getFaceSize(iC) + 1;
+  }
+
+  face_root.resize(nF);
+  invert_face.resize(nF);
+
+  for (int jF = 0; jF < nF; ++jF) if (not face_was_visited[jF]) {
+
+    int root = jF;
+    face_root[jF] = root;
+    nCC++;
+
+    face_was_visited[jF] = true;
+    corner_stack.clear();
+    for (int jC = first_corner_face[jF]; _coordIndex[jC] >= 0; ++jC)
+      corner_stack.push_back(jC);
+
+    while (not corner_stack.empty()) {
+      int iC = corner_stack.pop_back();
+      int iCt = getTwin(jC);
+      if (iCt == -1) continue;
+      int iFt = getFace(iCt);
+      int iF = getFace(iC);
+
+      bool should_be_inverted = not isOriented(iC);
+
+      if (face_was_visited[iFt]) {
+        if (should_be_inverted != invert_face[iF])
+          FAIL;
+      } else if (not face_was_visited[iFt]) {
+        face_root[iFt] = root;
+        invert_face[iFt] = should_be_inverted;
+        face_was_visited[iFt] = true;
+        for (int jC = first_corner_face[iFt]; _coordIndex[jC] >= 0; ++jC)
+          corner_stack.push_back(jC);
+      }
+
+    }
+  }
+
   return nCC;
 }
 
@@ -331,6 +521,12 @@ int PolygonMesh::numberOfIsolatedVertices() {
   //
   // - isolated vertices are those not contained in the coordIndex array
   // - it is sufficient to count how many faces are incident to each vertex 
+  vector<bool> isolated(getNumberOfVertices(), true);
+  for (int v : _coordIndex) if (v >= 0)
+    isolated[v] = false;
+
+  for (bool isolated_vtx : isolated)
+    nV_isolated += isolated_vtx;
 
   return nV_isolated;
 }
@@ -344,6 +540,13 @@ void PolygonMesh::getIsolatedVertices(vector<int>& isolated_vertex) {
   // - same as the previous method, but returning the indices of the
   //   isolated vertices in an array
 
+  int nV = getNumberOfVertices();
+  vector<bool> isolated(nV, true);
+  for (int v : _coordIndex) if (v >= 0)
+    isolated[v] = false;
+
+  for (int iV = 0; iV < nV; ++iV) if (isolated[iV])
+    isolated_vertex.push_back(iV);
 }
 
 // remove isolated vertices
@@ -374,6 +577,28 @@ bool PolygonMesh::removeIsolatedVertices
   //   coordMap array
   // - use this array to fill the coordIndexOut array from coordIndex
 
+  if (numberOfIsolatedVertices() == 0) return false;
+
+  int nV = getNumberOfVertices();
+  vector<bool> isolated(nV, true);
+  for (int v : _coordIndex) if (v >= 0)
+    isolated[v] = false;
+
+  vector<int> location(nV, -1);
+  for (int iV = 0; iV < nV; ++iV) if (not isolated[iV]) {
+    location[iV] = coordMap.size();
+    coordMap.push_back(iV);
+  }
+
+  for (int iC = 0; iC < getNumberOfCorners(); ++iC)
+    if (_coordIndex[iC] < 0) coordIndexOut[iC] = _coordIndex[iC];
+    else {
+      int iVold = _coordIndex[iC];
+      int i = location[iV];
+      int iVnew = coordMap[i];
+      coordIndexOut[iC] = iVnew;
+    }
+
   return true;
 }
 
@@ -399,6 +624,11 @@ void PolygonMesh::cutThroughSingularVertices
   vIndexMap.clear();
   coordIndexOut.clear();
 
+
+  int nC = getNumberOfCorners(),
+      nE = getNumberOfEdges(),
+      nV = getNumberOfVertices();
+
   // HINTS :
   //
   // - construct a partition of the corners by joining pairs of
@@ -411,6 +641,16 @@ void PolygonMesh::cutThroughSingularVertices
   // - when a subsequent half edge is associated with an edge which
   //   has a valid first half edge corner assigned, the new half edge
   //   and the first half edge of the edge result into two join operations
+  Partition partition(nC);
+  for (int iE = 0; iE < nE; ++iE) {
+    int n = getNumberOfEdgeHalfEdges(iE);
+    int fst = getEdgeHalfEdge(iE, 0);
+    if (fst == -1) continue;
+
+    for (int iC = 1; iC < n; ++i)
+      partition.join(fst, iC);
+  }
+
   //
   // - since the partition still contains the face separators as
   //   singletons, the number of output vertices is equal to the
@@ -418,17 +658,31 @@ void PolygonMesh::cutThroughSingularVertices
   //
   // - if the number of output vertices is equal to the number of
   //   input vertices, there is no more work to do
+  int nVout = partition.getNumberOfParts() - getNumberOfFaces();
+  if (nVout == nV) return;
+
   //
   // - initialize the output coordIndex array with nC -1's
+  coordIndexOut = vector<int>(nC, -1);
+
   //
   // - first pass through the coordIndex array
   //    - fill the vIndexMap array
   //    - fill the coordIndexOut array for root corner indices of the
   //      partition
+  for (int iC = 0; iC < nC; ++iC) if (iC == partition.find(iC)) {
+    int iVold = _coordIndex[iC];
+    int iVnew = vIndexMap.size();
+    vIndexMap.push_back(iVold);
+    coordIndexOut[iC] = iVnew;
+  }
+
   //
   // - second pass through the coordIndex array
   //    - fill the coordIndexOut array for non-root corner indices of
   //      the partition
+  for (int iC = 0; iC < nC; ++iC)
+    coordIndexOut[iC] = coordIndexOut[partition.find(iC)];
 
 }
 
@@ -463,4 +717,36 @@ void PolygonMesh::convertToManifold
   //
   // - to prevent these problems the orient() method should be calle
   // - before this one
+
+  // ↑ But doesn't orient() fail if there are singular edges?
+
+  int nC = getNumberOfCorners(),
+      nE = getNumberOfEdges(),
+      nV = getNumberOfVertices();
+        Partition partition(nC);
+
+  for (int iE = 0; iE < nE; ++iE) {
+    int n = getNumberOfEdgeHalfEdges(iE);
+    int fst = getEdgeHalfEdge(iE, 0);
+    if (fst == -1) continue;
+    if (not isOriented(fst)) continue;
+
+    for (int iC = 1; iC < n; ++i)
+      partition.join(fst, iC);
+  }
+
+  int nVout = partition.getNumberOfParts() - getNumberOfFaces();
+  if (nVout == nV) return;
+
+  coordIndexOut = vector<int>(nC, -1);
+
+  for (int iC = 0; iC < nC; ++iC) if (iC == partition.find(iC)) {
+    int iVold = _coordIndex[iC];
+    int iVnew = vIndexMap.size();
+    vIndexMap.push_back(iVold);
+    coordIndexOut[iC] = iVnew;
+  }
+
+  for (int iC = 0; iC < nC; ++iC)
+    coordIndexOut[iC] = coordIndexOut[partition.find(iC)];
 }

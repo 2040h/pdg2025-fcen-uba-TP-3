@@ -5,7 +5,7 @@
 //
 // HalfEdges.hpp (Assignment 3)
 //
-// Written by: <Your Name>
+// Written by: Rundong He
 //
 // Software developed for the course
 // Digital Geometry Processing
@@ -162,7 +162,7 @@ protected:
   // TODO Mon Mar 6 2023
   //
   // - add any additional variables you need to make it work
-
+  bool _hasBoundaryEdges, _hasRegularEdges, _hasSingularEdges;
 };
 
 #endif /* _HALF_EDGES_HPP_ */
